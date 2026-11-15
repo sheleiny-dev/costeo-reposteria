@@ -105,6 +105,13 @@
 
   .pie { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
   .pie.sin-margen { margin-top: 0; }
+  .cuenta {
+    display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center;
+    margin: 0 0 24px; padding: 12px 14px;
+    background: var(--pistacho); border-radius: 12px;
+  }
+  .cuenta p { margin: 0; flex: 1 1 220px; }
+  .estado-nube { display: block; color: var(--suave); font-size: .85rem; }
   .guardado { color: var(--suave); font-size: .9rem; margin: 18px 0 0; }
 
   @media (max-width: 620px) {
@@ -119,6 +126,13 @@
 <main>
   <h1>Costeo de recetas</h1>
   <p class="sub">Calcula cuánto te cuesta cada receta y a qué precio venderla.</p>
+
+  <div class="cuenta">
+    <p><span id="cuentaTexto">Inicia sesión para guardar tus recetas en la nube y verlas en tu celular y en tu computador.</span>
+       <span class="estado-nube" id="estadoNube" aria-live="polite"></span></p>
+    <button class="boton" id="entrar" type="button">Iniciar sesión con Google</button>
+    <button class="boton discreto" id="salir" type="button" hidden>Cerrar sesión</button>
+  </div>
 
   <h2>Mis recetas</h2>
   <p class="nota">Toca una receta para abrirla. A la derecha ves su precio sugerido.</p>
@@ -181,10 +195,33 @@
     <button class="boton discreto" id="duplicar" type="button">Duplicar esta receta</button>
     <button class="boton discreto" id="eliminar" type="button">Eliminar esta receta</button>
   </div>
-  <p class="guardado">Tus recetas se guardan solas en este navegador.</p>
+  <p class="guardado">Tus recetas se guardan solas en este navegador. Si inicias sesión, también se guardan en la nube.</p>
 </main>
 
-<script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+    from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+  import { getFirestore, doc, onSnapshot, setDoc, serverTimestamp }
+    from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+  // ===== Configuración de Firebase (la sacas de tu consola de Firebase) =====
+  // Si el inicio de sesión falla con "api-key-not-valid", copia el bloque desde tu
+  // consola de Firebase y pégalo aquí encima, reemplazando estas líneas.
+  const firebaseConfig = {
+    apiKey: "AIzaSyCq2sNxs-wNUYN0SIeKMsgB14TUHRPDwbI",
+    authDomain: "costeo-reposteria.firebaseapp.com",
+    projectId: "costeo-reposteria",
+    messagingSenderId: "707066258959",
+    appId: "1:707066258959:web:66afafced7f7cd5ccd657a"
+  };
+  // ==========================================================================
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  const CLAVE_SYNC = "costeo-reposteria-sync";
   const CLAVE = "costeo-reposteria-v2";
   const CLAVE_V1 = "costeo-reposteria-v1";
   const cop = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
@@ -304,6 +341,7 @@
     try {
       localStorage.setItem(CLAVE, JSON.stringify({ recetas, actualId }));
     } catch (e) { /* si el navegador no deja guardar, la calculadora sigue funcionando */ }
+    subirNube();
   }
 
   function limpiar(r) {
@@ -370,7 +408,7 @@
     fila.querySelector(".i-precio").value = datos.precio ?? "";
     fila.querySelector(".i-usada").value = datos.usada ?? "";
     fila.querySelector(".i-uu").value = datos.unidadU || "g";
-    fila.querySelector(".quitar").addEventListener("click", () => { fila.remove(); calcular(); });
+    fila.querySelector(".quitar").addEventListener("click", () => { fila.remove(); alEditar(); });
     contenedor.appendChild(fila);
   }
 
@@ -502,14 +540,146 @@
   });
   $("wsLista").addEventListener("click", () => enviarWhatsApp(mensajeLista()));
 
-  $("agregar").addEventListener("click", () => { nuevaFila(); calcular(); });
-  document.addEventListener("input", calcular);
-  document.addEventListener("change", calcular);
+  // Si editas la receta de ejemplo, pasa a ser tuya (así no se confunde al sincronizar)
+  function alEditar() {
+    const r = actual();
+    if (r.id === "ejemplo") { r.id = nuevoId(); actualId = r.id; }
+    calcular();
+  }
+
+  $("agregar").addEventListener("click", () => { nuevaFila(); alEditar(); });
+  document.addEventListener("input", alEditar);
+  document.addEventListener("change", alEditar);
+
+  /* ---------- Nube (Firebase) ---------- */
+
+  let usuario = null;
+  let desuscribir = null;
+  let ultimoNube = null;     // último texto que sabemos que está en la nube
+  let temporizador = null;   // espera corta antes de subir, para no enviar cada letra
+  let nubeLista = false;     // true cuando ya comparamos con lo que hay en la nube
+
+  const estado = texto => { $("estadoNube").textContent = texto; };
+  // Solo se suben las recetas; la receta abierta es propia de cada dispositivo
+  const datosNube = () => JSON.stringify({ recetas });
+
+  function pintarCuenta() {
+    $("entrar").hidden = !!usuario;
+    $("salir").hidden = !usuario;
+    $("cuentaTexto").textContent = usuario
+      ? "Hola, " + (usuario.displayName || usuario.email || "").split(" ")[0] + "."
+      : "Inicia sesión para guardar tus recetas en la nube y verlas en tu celular y en tu computador.";
+    if (!usuario) estado("");
+  }
+
+  function subirNube() {
+    if (!usuario || !nubeLista) return;
+    clearTimeout(temporizador);
+    estado("Guardando…");
+    temporizador = setTimeout(async () => {
+      temporizador = null;
+      const datos = datosNube();
+      if (datos === ultimoNube) { estado("Guardado en la nube ✓"); return; }
+      ultimoNube = datos;
+      try {
+        await setDoc(doc(db, "usuarios", usuario.uid), { datos, actualizado: serverTimestamp() });
+        estado("Guardado en la nube ✓");
+      } catch (e) {
+        ultimoNube = null;
+        estado("No se pudo guardar en la nube. Tus recetas siguen guardadas en este dispositivo.");
+      }
+    }, 800);
+  }
+
+  function recetasDeNube(texto) {
+    try {
+      const d = JSON.parse(texto);
+      return Array.isArray(d.recetas) && d.recetas.length ? d.recetas.map(limpiar) : null;
+    } catch (e) { return null; }
+  }
+
+  // Primera lectura al iniciar sesión
+  function sincronizarInicial(snap, user) {
+    let yaSincronizado = false;
+    try { yaSincronizado = localStorage.getItem(CLAVE_SYNC) === user.uid; } catch (e) {}
+
+    const textoNube = snap.exists() ? snap.data().datos : null;
+    const nube = textoNube ? recetasDeNube(textoNube) : null;
+
+    if (nube) {
+      // Primera vez en este dispositivo: suma también las recetas que ya tenías aquí
+      if (!yaSincronizado) {
+        const ids = new Set(nube.map(r => r.id));
+        recetas.filter(r => r.id !== "ejemplo" && !ids.has(r.id)).forEach(r => nube.push(r));
+      }
+      recetas = nube;
+      if (!recetas.some(r => r.id === actualId)) actualId = recetas[0].id;
+      ultimoNube = textoNube;
+    } else {
+      ultimoNube = null; // la nube está vacía: se suben las recetas de este dispositivo
+    }
+
+    try { localStorage.setItem(CLAVE_SYNC, user.uid); } catch (e) {}
+    nubeLista = true;
+    abrir(actualId);
+  }
+
+  // Cambios hechos desde otro dispositivo
+  function aplicarNube(texto) {
+    const nube = recetasDeNube(texto);
+    if (!nube) return;
+    recetas = nube;
+    if (!recetas.some(r => r.id === actualId)) actualId = recetas[0].id;
+    ultimoNube = datosNube();
+    abrir(actualId);
+  }
+
+  onAuthStateChanged(auth, user => {
+    usuario = user;
+    nubeLista = false;
+    clearTimeout(temporizador);
+    temporizador = null;
+    if (desuscribir) { desuscribir(); desuscribir = null; }
+    pintarCuenta();
+    if (!user) return;
+
+    estado("Conectando con la nube…");
+    let primera = true;
+    desuscribir = onSnapshot(
+      doc(db, "usuarios", user.uid),
+      { includeMetadataChanges: true },
+      snap => {
+        if (snap.metadata.hasPendingWrites) return;      // es un cambio nuestro, aún en camino
+        if (primera) {
+          if (snap.metadata.fromCache) return;           // espera la respuesta real del servidor
+          primera = false;
+          sincronizarInicial(snap, user);
+          return;
+        }
+        if (temporizador) return;                        // estás editando: no te pisamos
+        const texto = snap.exists() ? snap.data().datos : null;
+        if (texto && texto !== ultimoNube) aplicarNube(texto);
+      },
+      () => estado("No se pudo conectar con la nube. Tus recetas siguen guardadas en este dispositivo.")
+    );
+  });
+
+  $("entrar").addEventListener("click", async () => {
+    try {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    } catch (e) {
+      if (e.code === "auth/popup-closed-by-user" || e.code === "auth/cancelled-popup-request") return;
+      alert("No se pudo iniciar sesión (" + e.code + "). Si el navegador bloqueó la ventana emergente, permítela y vuelve a intentarlo.");
+    }
+  });
+
+  $("salir").addEventListener("click", () => signOut(auth));
 
   /* ---------- Arranque ---------- */
 
   if (!cargar()) {
     const ejemplo = recetaVacia();
+    ejemplo.id = "ejemplo";
     ejemplo.nombre = "Torta de ejemplo";
     ejemplo.ingredientes = [
       { nombre: "Harina", comprada: "1", unidadC: "kg", precio: "4500", usada: "300", unidadU: "g" },
