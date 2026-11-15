@@ -40,7 +40,7 @@
   }
   .item:hover { border-color: var(--texto); }
   .item.activa { background: var(--pistacho); border: 2px solid var(--texto); padding: 9px 13px; }
-  .item-precio { color: var(--frambuesa); font-weight: 600; white-space: nowrap; }
+  .item-precio { color: var(--frambuesa); font-weight: 600; text-align: right; }
 
   .boton {
     font: inherit; font-weight: 600;
@@ -54,16 +54,8 @@
 
   /* Formulario */
   .nombre-receta input { font-size: 1.1rem; font-weight: 600; }
-  .fila {
-    display: grid;
-    grid-template-columns: 2fr 1fr 1fr 1fr auto;
-    gap: 8px;
-    align-items: end;
-    padding: 12px 0;
-    border-bottom: 1px solid var(--linea);
-  }
   label { display: block; font-size: .8rem; color: var(--suave); margin-bottom: 2px; }
-  input {
+  input, select {
     width: 100%;
     font: inherit;
     padding: 9px 10px;
@@ -72,8 +64,23 @@
     background: var(--papel);
     color: var(--texto);
   }
-  input:focus-visible, button:focus-visible { outline: 3px solid var(--frambuesa); outline-offset: 1px; }
-  .costo { font-weight: 600; padding-bottom: 9px; white-space: nowrap; }
+  input:focus-visible, select:focus-visible, button:focus-visible { outline: 3px solid var(--frambuesa); outline-offset: 1px; }
+
+  .fila {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    align-items: end;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--linea);
+  }
+  .fila .nombre { grid-column: span 2; }
+  .par { display: flex; gap: 6px; }
+  .par input { flex: 1; min-width: 0; }
+  .par select { flex: 0 0 auto; width: 92px; }
+  .fin { display: flex; justify-content: flex-end; align-items: center; gap: 4px; padding-bottom: 4px; }
+  .costo { font-weight: 600; white-space: nowrap; }
+  .costo.alerta { color: var(--frambuesa); font-size: .85rem; white-space: normal; text-align: right; }
   .quitar {
     border: 0; background: none; color: var(--suave);
     font-size: 1.3rem; cursor: pointer; padding: 4px 8px; border-radius: 6px;
@@ -81,7 +88,7 @@
   .quitar:hover { color: var(--frambuesa); }
   #agregar { margin-top: 14px; }
 
-  .ajustes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .ajustes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 
   .resultado {
     margin-top: 36px;
@@ -97,11 +104,13 @@
   .detalle dd { margin: 0; font-weight: 600; font-size: 1.1rem; }
 
   .pie { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .pie.sin-margen { margin-top: 0; }
   .guardado { color: var(--suave); font-size: .9rem; margin: 18px 0 0; }
 
   @media (max-width: 620px) {
-    .fila { grid-template-columns: 1fr 1fr; }
-    .fila .nombre { grid-column: 1 / -1; }
+    .fila { grid-template-columns: 1fr; }
+    .fila .nombre { grid-column: auto; }
+    .fin { order: 5; }
     .ajustes { grid-template-columns: 1fr; }
   }
 </style>
@@ -109,12 +118,15 @@
 <body>
 <main>
   <h1>Costeo de recetas</h1>
-  <p class="sub">Calcula cuánto te cuesta cada torta y a qué precio venderla.</p>
+  <p class="sub">Calcula cuánto te cuesta cada receta y a qué precio venderla.</p>
 
   <h2>Mis recetas</h2>
-  <p class="nota">Toca una receta para abrirla. A la derecha ves el precio sugerido por porción.</p>
+  <p class="nota">Toca una receta para abrirla. A la derecha ves su precio sugerido.</p>
   <ul class="lista" id="lista"></ul>
-  <button class="boton" id="nueva" type="button">Nueva receta</button>
+  <div class="pie sin-margen">
+    <button class="boton" id="nueva" type="button">Nueva receta</button>
+    <button class="boton" id="wsLista" type="button">Enviar lista de precios por WhatsApp</button>
+  </div>
 
   <h2>Receta abierta</h2>
   <div class="nombre-receta">
@@ -123,19 +135,29 @@
   </div>
 
   <h2>Ingredientes</h2>
-  <p class="nota">Escribe cuánto compraste, cuánto pagaste y cuánto usas en la receta. Usa la misma unidad (gramos, ml o unidades) en las dos cantidades.</p>
+  <p class="nota">Escribe cuánto compraste, cuánto pagaste y cuánto usas, y elige la unidad de cada cantidad. Puedes comprar en una unidad y usar otra del mismo tipo (por ejemplo, compras en kg y usas en g). No se puede pasar de peso a volumen (g a ml) porque depende del ingrediente. Equivalencias: taza = 240 ml, cda = 15 ml, cdta = 5 ml, docena = 12 unidades.</p>
   <div id="ingredientes"></div>
   <button class="boton" id="agregar" type="button">Agregar ingrediente</button>
 
-  <h2>Costos y ganancia</h2>
+  <h2>Rendimiento, costos y ganancia</h2>
   <div class="ajustes">
+    <div id="campoCantidad">
+      <label for="porciones">Cuántas salen</label>
+      <input id="porciones" type="number" min="1" step="1" value="12" inputmode="numeric">
+    </div>
+    <div>
+      <label for="tipo">Se vende por</label>
+      <select id="tipo">
+        <option value="porcion">Porción (rebanada)</option>
+        <option value="galleta">Galleta</option>
+        <option value="cupcake">Cupcake</option>
+        <option value="unidad">Unidad (pan, alfajor…)</option>
+        <option value="entera">Torta entera</option>
+      </select>
+    </div>
     <div>
       <label for="otros">Otros costos (empaque, gas, mano de obra)</label>
       <input id="otros" type="number" min="0" step="any" value="0" inputmode="decimal">
-    </div>
-    <div>
-      <label for="porciones">Porciones que rinde</label>
-      <input id="porciones" type="number" min="1" step="1" value="12" inputmode="numeric">
     </div>
     <div>
       <label for="margen">Ganancia sobre el costo (%)</label>
@@ -144,17 +166,18 @@
   </div>
 
   <section class="resultado" aria-live="polite">
-    <p class="precio-etiqueta">Precio sugerido por porción</p>
+    <p class="precio-etiqueta" id="etiquetaPrecio">Precio sugerido</p>
     <p class="precio" id="precioPorcion">$0</p>
     <dl class="detalle">
       <div><dt>Costo total de la receta</dt><dd id="costoTotal">$0</dd></div>
-      <div><dt>Costo por porción</dt><dd id="costoPorcion">$0</dd></div>
-      <div><dt>Precio de la torta completa</dt><dd id="precioTorta">$0</dd></div>
-      <div><dt>Ganancia por torta</dt><dd id="ganancia">$0</dd></div>
+      <div id="bloqueCostoPorcion"><dt id="etCostoPorcion">Costo por porción</dt><dd id="costoPorcion">$0</dd></div>
+      <div id="bloquePrecioTotal"><dt id="etPrecioTotal">Precio de toda la receta</dt><dd id="precioTorta">$0</dd></div>
+      <div><dt>Ganancia de la receta</dt><dd id="ganancia">$0</dd></div>
     </dl>
   </section>
 
   <div class="pie">
+    <button class="boton" id="wsReceta" type="button">Enviar este precio por WhatsApp</button>
     <button class="boton discreto" id="duplicar" type="button">Duplicar esta receta</button>
     <button class="boton discreto" id="eliminar" type="button">Eliminar esta receta</button>
   </div>
@@ -175,26 +198,104 @@
   const nuevoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const actual = () => recetas.find(r => r.id === actualId);
 
+  /* ---------- Unidades y tipos de venta ---------- */
+
+  // "factor" convierte cada unidad a la unidad base de su familia (g, ml o unidad)
+  const UNIDADES = {
+    g:      { nombre: "g",       familia: "peso",     factor: 1 },
+    kg:     { nombre: "kg",      familia: "peso",     factor: 1000 },
+    lb:     { nombre: "lb",      familia: "peso",     factor: 453.592 },
+    oz:     { nombre: "oz",      familia: "peso",     factor: 28.3495 },
+    ml:     { nombre: "ml",      familia: "volumen",  factor: 1 },
+    l:      { nombre: "litro",   familia: "volumen",  factor: 1000 },
+    taza:   { nombre: "taza",    familia: "volumen",  factor: 240 },
+    cda:    { nombre: "cda",     familia: "volumen",  factor: 15 },
+    cdta:   { nombre: "cdta",    familia: "volumen",  factor: 5 },
+    und:    { nombre: "unidad",  familia: "cantidad", factor: 1 },
+    docena: { nombre: "docena",  familia: "cantidad", factor: 12 }
+  };
+  const GRUPOS = [
+    { titulo: "Peso", claves: ["g", "kg", "lb", "oz"] },
+    { titulo: "Volumen", claves: ["ml", "l", "taza", "cda", "cdta"] },
+    { titulo: "Cantidad", claves: ["und", "docena"] }
+  ];
+  const OPCIONES_UNIDAD = GRUPOS.map(g =>
+    `<optgroup label="${g.titulo}">` +
+    g.claves.map(k => `<option value="${k}">${UNIDADES[k].nombre}</option>`).join("") +
+    `</optgroup>`
+  ).join("");
+
+  const TIPOS = {
+    porcion: { singular: "porción",  plural: "porciones" },
+    galleta: { singular: "galleta",  plural: "galletas" },
+    cupcake: { singular: "cupcake",  plural: "cupcakes" },
+    unidad:  { singular: "unidad",   plural: "unidades" },
+    entera:  { singular: "torta entera", plural: "tortas enteras" }
+  };
+
   /* ---------- Datos y cálculos ---------- */
 
+  function ingredienteVacio() {
+    return { nombre: "", comprada: "", unidadC: "g", precio: "", usada: "", unidadU: "g" };
+  }
+
   function recetaVacia() {
-    return { id: nuevoId(), nombre: "", otros: "0", porciones: "12", margen: "100",
-             ingredientes: [{ nombre: "", comprada: "", precio: "", usada: "" }] };
+    return { id: nuevoId(), nombre: "", otros: "0", porciones: "12", tipo: "porcion", margen: "100",
+             ingredientes: [ingredienteVacio()] };
+  }
+
+  function compatibles(i) {
+    return UNIDADES[i.unidadC].familia === UNIDADES[i.unidadU].familia;
   }
 
   function costoIngrediente(i) {
-    const comprada = num(i.comprada);
-    return comprada > 0 ? (num(i.precio) / comprada) * num(i.usada) : 0;
+    if (!compatibles(i)) return 0;
+    const comprada = num(i.comprada) * UNIDADES[i.unidadC].factor;
+    const usada = num(i.usada) * UNIDADES[i.unidadU].factor;
+    return comprada > 0 ? (num(i.precio) / comprada) * usada : 0;
   }
 
   function resumen(r) {
     const total = r.ingredientes.reduce((suma, i) => suma + costoIngrediente(i), 0) + num(r.otros);
-    const porciones = Math.max(1, num(r.porciones));
-    const costoPorcion = total / porciones;
-    // Redondea el precio por porción a la centena más cercana hacia arriba
-    const precioPorcion = Math.ceil((costoPorcion * (1 + num(r.margen) / 100)) / 100) * 100;
-    const precioTorta = precioPorcion * porciones;
-    return { total, costoPorcion, precioPorcion, precioTorta, ganancia: precioTorta - total };
+    const cantidad = r.tipo === "entera" ? 1 : Math.max(1, num(r.porciones));
+    const costoPorcion = total / cantidad;
+    // Redondea el precio hacia arriba: de 50 en 50 si es barato (galletas), de 100 en 100 si no
+    const bruto = costoPorcion * (1 + num(r.margen) / 100);
+    const paso = bruto < 1000 ? 50 : 100;
+    const precioPorcion = Math.ceil(bruto / paso) * paso;
+    const precioTorta = precioPorcion * cantidad;
+    return { total, cantidad, costoPorcion, precioPorcion, precioTorta, ganancia: precioTorta - total };
+  }
+
+  function textoPrecio(r) {
+    const precio = cop.format(resumen(r).precioPorcion);
+    return r.tipo === "entera" ? precio + " la torta entera" : precio + " por " + TIPOS[r.tipo].singular;
+  }
+
+  /* ---------- WhatsApp ---------- */
+
+  // El mensaje es para tu cliente: solo lleva precios, nunca tus costos ni tu ganancia
+  function mensajeReceta(r) {
+    const s = resumen(r);
+    const nombre = r.nombre.trim() || "mi receta";
+    const precio = cop.format(s.precioPorcion);
+    if (r.tipo === "entera") return "Hola 👋 El precio de *" + nombre + "* es " + precio + ".";
+    const t = TIPOS[r.tipo];
+    return "Hola 👋 El precio de *" + nombre + "* es " + precio + " por " + t.singular +
+      ". La receta completa (" + s.cantidad + " " + (s.cantidad === 1 ? t.singular : t.plural) + ") sale en " +
+      cop.format(s.precioTorta) + ".";
+  }
+
+  function mensajeLista() {
+    const lineas = recetas
+      .filter(r => resumen(r).precioPorcion > 0)
+      .map(r => "• " + (r.nombre.trim() || "Receta sin nombre") + ": " + textoPrecio(r));
+    return lineas.length ? "*Lista de precios* 🎂\n" + lineas.join("\n") : "";
+  }
+
+  function enviarWhatsApp(texto) {
+    if (!texto) { alert("Primero agrega ingredientes para que haya un precio que enviar."); return; }
+    window.open("https://wa.me/?text=" + encodeURIComponent(texto), "_blank", "noopener");
   }
 
   /* ---------- Guardar y cargar ---------- */
@@ -211,13 +312,16 @@
       nombre: String(r.nombre || ""),
       otros: String(r.otros ?? "0"),
       porciones: String(r.porciones ?? "12"),
+      tipo: TIPOS[r.tipo] ? r.tipo : "porcion",
       margen: String(r.margen ?? "100"),
       ingredientes: Array.isArray(r.ingredientes)
         ? r.ingredientes.map(i => ({
             nombre: String(i.nombre || ""),
             comprada: String(i.comprada ?? ""),
+            unidadC: UNIDADES[i.unidadC] ? i.unidadC : "g",
             precio: String(i.precio ?? ""),
-            usada: String(i.usada ?? "")
+            usada: String(i.usada ?? ""),
+            unidadU: UNIDADES[i.unidadU] ? i.unidadU : "g"
           }))
         : []
     };
@@ -253,15 +357,19 @@
     fila.className = "fila";
     fila.innerHTML = `
       <div class="nombre"><label>Ingrediente</label><input type="text" class="i-nombre" placeholder="Harina"></div>
-      <div><label>Cantidad comprada</label><input type="number" class="i-comprada" min="0" step="any" inputmode="decimal"></div>
+      <div class="fin"><span class="costo">$0</span><button class="quitar" type="button" aria-label="Quitar ingrediente">×</button></div>
+      <div><label>Cantidad comprada</label>
+        <div class="par"><input type="number" class="i-comprada" min="0" step="any" inputmode="decimal"><select class="i-uc" aria-label="Unidad comprada">${OPCIONES_UNIDAD}</select></div></div>
       <div><label>Precio pagado</label><input type="number" class="i-precio" min="0" step="any" inputmode="decimal"></div>
-      <div><label>Cantidad que usas</label><input type="number" class="i-usada" min="0" step="any" inputmode="decimal"></div>
-      <div><span class="costo">$0</span><button class="quitar" type="button" aria-label="Quitar ingrediente">×</button></div>
+      <div><label>Cantidad que usas</label>
+        <div class="par"><input type="number" class="i-usada" min="0" step="any" inputmode="decimal"><select class="i-uu" aria-label="Unidad usada">${OPCIONES_UNIDAD}</select></div></div>
     `;
     fila.querySelector(".i-nombre").value = datos.nombre || "";
     fila.querySelector(".i-comprada").value = datos.comprada ?? "";
+    fila.querySelector(".i-uc").value = datos.unidadC || "g";
     fila.querySelector(".i-precio").value = datos.precio ?? "";
     fila.querySelector(".i-usada").value = datos.usada ?? "";
+    fila.querySelector(".i-uu").value = datos.unidadU || "g";
     fila.querySelector(".quitar").addEventListener("click", () => { fila.remove(); calcular(); });
     contenedor.appendChild(fila);
   }
@@ -270,6 +378,7 @@
     $("nombreReceta").value = r.nombre;
     $("otros").value = r.otros;
     $("porciones").value = r.porciones;
+    $("tipo").value = r.tipo;
     $("margen").value = r.margen;
     contenedor.innerHTML = "";
     r.ingredientes.forEach(nuevaFila);
@@ -281,12 +390,15 @@
     r.nombre = $("nombreReceta").value;
     r.otros = $("otros").value;
     r.porciones = $("porciones").value;
+    r.tipo = $("tipo").value;
     r.margen = $("margen").value;
     r.ingredientes = [...contenedor.querySelectorAll(".fila")].map(f => ({
       nombre: f.querySelector(".i-nombre").value,
       comprada: f.querySelector(".i-comprada").value,
+      unidadC: f.querySelector(".i-uc").value,
       precio: f.querySelector(".i-precio").value,
-      usada: f.querySelector(".i-usada").value
+      usada: f.querySelector(".i-usada").value,
+      unidadU: f.querySelector(".i-uu").value
     }));
   }
 
@@ -304,7 +416,7 @@
       nombre.textContent = r.nombre.trim() || "Receta sin nombre";
       const precio = document.createElement("span");
       precio.className = "item-precio";
-      precio.textContent = cop.format(resumen(r).precioPorcion) + " por porción";
+      precio.textContent = textoPrecio(r);
 
       boton.append(nombre, precio);
       boton.addEventListener("click", () => abrir(r.id));
@@ -316,12 +428,33 @@
   function calcular() {
     leerFormulario();
     const r = actual();
+    const tipo = TIPOS[r.tipo];
+    const entera = r.tipo === "entera";
 
     contenedor.querySelectorAll(".fila").forEach((fila, k) => {
-      fila.querySelector(".costo").textContent = cop.format(costoIngrediente(r.ingredientes[k]));
+      const i = r.ingredientes[k];
+      const costo = fila.querySelector(".costo");
+      if (compatibles(i)) {
+        costo.textContent = cop.format(costoIngrediente(i));
+        costo.classList.remove("alerta");
+      } else {
+        costo.textContent = "⚠ Unidades que no se pueden comparar";
+        costo.classList.add("alerta");
+      }
     });
 
     const s = resumen(r);
+    $("campoCantidad").hidden = entera;
+    $("bloqueCostoPorcion").hidden = entera;
+    $("bloquePrecioTotal").hidden = entera;
+
+    $("etiquetaPrecio").textContent = entera
+      ? "Precio sugerido de la torta entera"
+      : "Precio sugerido por " + tipo.singular;
+    $("etCostoPorcion").textContent = "Costo por " + tipo.singular;
+    $("etPrecioTotal").textContent = "Precio de la receta completa (" + s.cantidad + " " +
+      (s.cantidad === 1 ? tipo.singular : tipo.plural) + ")";
+
     $("costoTotal").textContent = cop.format(s.total);
     $("costoPorcion").textContent = cop.format(s.costoPorcion);
     $("precioPorcion").textContent = cop.format(s.precioPorcion);
@@ -363,8 +496,15 @@
     abrir(recetas[0].id);
   });
 
+  $("wsReceta").addEventListener("click", () => {
+    const r = actual();
+    enviarWhatsApp(resumen(r).precioPorcion > 0 ? mensajeReceta(r) : "");
+  });
+  $("wsLista").addEventListener("click", () => enviarWhatsApp(mensajeLista()));
+
   $("agregar").addEventListener("click", () => { nuevaFila(); calcular(); });
   document.addEventListener("input", calcular);
+  document.addEventListener("change", calcular);
 
   /* ---------- Arranque ---------- */
 
@@ -372,9 +512,9 @@
     const ejemplo = recetaVacia();
     ejemplo.nombre = "Torta de ejemplo";
     ejemplo.ingredientes = [
-      { nombre: "Harina", comprada: "1000", precio: "4500", usada: "300" },
-      { nombre: "Azúcar", comprada: "1000", precio: "4000", usada: "250" },
-      { nombre: "Huevos", comprada: "30", precio: "15000", usada: "4" }
+      { nombre: "Harina", comprada: "1", unidadC: "kg", precio: "4500", usada: "300", unidadU: "g" },
+      { nombre: "Azúcar", comprada: "1", unidadC: "kg", precio: "4000", usada: "250", unidadU: "g" },
+      { nombre: "Huevos", comprada: "30", unidadC: "und", precio: "15000", usada: "4", unidadU: "und" }
     ];
     recetas = [ejemplo];
     actualId = ejemplo.id;
