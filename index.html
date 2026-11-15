@@ -78,6 +78,17 @@
   .detalle dt { font-size: .85rem; color: var(--suave); }
   .detalle dd { margin: 0; font-weight: 600; font-size: 1.1rem; }
 
+  .nombre-receta { margin-bottom: 8px; }
+  .nombre-receta input { font-size: 1.1rem; font-weight: 600; }
+  .pie { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+  .guardado { color: var(--suave); font-size: .9rem; margin: 0; }
+  .reiniciar {
+    font: inherit; background: none; color: var(--suave);
+    border: 1px solid var(--linea); border-radius: 999px;
+    padding: 8px 16px; cursor: pointer;
+  }
+  .reiniciar:hover { color: var(--frambuesa); border-color: var(--frambuesa); }
+
   @media (max-width: 620px) {
     .fila { grid-template-columns: 1fr 1fr; }
     .fila .nombre { grid-column: 1 / -1; }
@@ -89,6 +100,11 @@
 <main>
   <h1>Costeo de recetas</h1>
   <p class="sub">Calcula cuánto te cuesta cada torta y a qué precio venderla.</p>
+
+  <div class="nombre-receta">
+    <label for="nombreReceta">Nombre de la receta</label>
+    <input id="nombreReceta" type="text" placeholder="Torta de chocolate">
+  </div>
 
   <h2>Ingredientes</h2>
   <p class="nota">Escribe cuánto compraste, cuánto pagaste y cuánto usas en la receta. Usa la misma unidad (gramos, ml o unidades) en las dos cantidades.</p>
@@ -121,6 +137,11 @@
       <div><dt>Ganancia por torta</dt><dd id="ganancia">$0</dd></div>
     </dl>
   </section>
+
+  <div class="pie">
+    <p class="guardado">Tu receta se guarda sola en este navegador.</p>
+    <button class="reiniciar" id="reiniciar" type="button">Empezar receta nueva</button>
+  </div>
 </main>
 
 <script>
@@ -131,13 +152,14 @@
     const fila = document.createElement("div");
     fila.className = "fila";
     fila.innerHTML = `
-      <div class="nombre"><label>Ingrediente</label><input type="text" class="i-nombre" placeholder="Harina" value="${datos.nombre || ""}"></div>
+      <div class="nombre"><label>Ingrediente</label><input type="text" class="i-nombre" placeholder="Harina" ></div>
       <div><label>Cantidad comprada</label><input type="number" class="i-comprada" min="0" step="any" inputmode="decimal" value="${datos.comprada ?? ""}"></div>
       <div><label>Precio pagado</label><input type="number" class="i-precio" min="0" step="any" inputmode="decimal" value="${datos.precio ?? ""}"></div>
       <div><label>Cantidad que usas</label><input type="number" class="i-usada" min="0" step="any" inputmode="decimal" value="${datos.usada ?? ""}"></div>
       <div><span class="costo">$0</span><button class="quitar" type="button" aria-label="Quitar ingrediente">×</button></div>
     `;
     fila.querySelector(".quitar").addEventListener("click", () => { fila.remove(); calcular(); });
+    fila.querySelector(".i-nombre").value = datos.nombre || "";
     contenedor.appendChild(fila);
   }
 
@@ -168,15 +190,66 @@
     document.getElementById("precioPorcion").textContent = cop.format(precioPorcion);
     document.getElementById("precioTorta").textContent = cop.format(precioTorta);
     document.getElementById("ganancia").textContent = cop.format(precioTorta - total);
+    guardar();
   }
+
+  const CLAVE = "costeo-reposteria-v1";
+
+  function guardar() {
+    try {
+      const datos = {
+        nombre: document.getElementById("nombreReceta").value,
+        otros: document.getElementById("otros").value,
+        porciones: document.getElementById("porciones").value,
+        margen: document.getElementById("margen").value,
+        ingredientes: [...contenedor.querySelectorAll(".fila")].map(f => ({
+          nombre: f.querySelector(".i-nombre").value,
+          comprada: f.querySelector(".i-comprada").value,
+          precio: f.querySelector(".i-precio").value,
+          usada: f.querySelector(".i-usada").value
+        }))
+      };
+      localStorage.setItem(CLAVE, JSON.stringify(datos));
+    } catch (e) { /* si el navegador no deja guardar, la calculadora sigue funcionando */ }
+  }
+
+  function cargar() {
+    try {
+      const guardado = localStorage.getItem(CLAVE);
+      if (!guardado) return false;
+      const datos = JSON.parse(guardado);
+      document.getElementById("nombreReceta").value = datos.nombre || "";
+      document.getElementById("otros").value = datos.otros || 0;
+      document.getElementById("porciones").value = datos.porciones || 12;
+      document.getElementById("margen").value = datos.margen || 100;
+      (datos.ingredientes || []).forEach(nuevaFila);
+      if (!contenedor.children.length) nuevaFila();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  document.getElementById("reiniciar").addEventListener("click", () => {
+    if (!confirm("¿Borrar esta receta y empezar una nueva?")) return;
+    contenedor.innerHTML = "";
+    document.getElementById("nombreReceta").value = "";
+    document.getElementById("otros").value = 0;
+    document.getElementById("porciones").value = 12;
+    document.getElementById("margen").value = 100;
+    nuevaFila();
+    calcular();
+  });
 
   document.getElementById("agregar").addEventListener("click", () => { nuevaFila(); calcular(); });
   document.addEventListener("input", calcular);
 
-  // Ejemplo inicial para ver cómo funciona
-  nuevaFila({ nombre: "Harina", comprada: 1000, precio: 4500, usada: 300 });
-  nuevaFila({ nombre: "Azúcar", comprada: 1000, precio: 4000, usada: 250 });
-  nuevaFila({ nombre: "Huevos", comprada: 30, precio: 15000, usada: 4 });
+  // Si hay una receta guardada, la recupera; si no, muestra un ejemplo
+  if (!cargar()) {
+    nuevaFila({ nombre: "Harina", comprada: 1000, precio: 4500, usada: 300 });
+    nuevaFila({ nombre: "Azúcar", comprada: 1000, precio: 4000, usada: 250 });
+    nuevaFila({ nombre: "Huevos", comprada: 30, precio: 15000, usada: 4 });
+  }
   calcular();
 </script>
 </body>
